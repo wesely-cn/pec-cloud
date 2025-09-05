@@ -1,19 +1,20 @@
 # -*- coding:utf-8 -*-
-# @FileName  :login-status-app.py
+# @FileName  :login-api.py
 # @Time      :2025/8/28 21:32
 # @Author    :shi lei.wei  <slwei@eppei.com>.
-
+# 可选：在应用关闭时清理资源
+import atexit
+import logging
+# 推荐使用 queue 来管理线程池
+import queue
+import sqlite3
+import threading
+from contextlib import contextmanager
 
 # app.py
 from flask import Flask, request, jsonify
-import sqlite3
-import os
-import threading
-# 推荐使用 queue 来管理线程池
-import queue
-import time
-from contextlib import contextmanager
 
+logger = logging.getLogger(__name__)
 # --- 配置 ---
 DB_NAME = 'login_status.db'
 # 线程池大小
@@ -37,7 +38,7 @@ def init_db():
             )
         ''')
         conn.commit()
-        print("数据库已初始化或已存在。")
+        logger.info("数据库已初始化或已存在。")
 
 
 # --- 数据库连接管理 ---
@@ -56,7 +57,7 @@ def get_db_connection():
         local_storage.connection = sqlite3.connect(DB_NAME, check_same_thread=False)
         # 可选：设置行工厂以方便访问列
         local_storage.connection.row_factory = sqlite3.Row
-        print(f"线程 {threading.get_ident()} 创建了新的数据库连接。")
+        logger.info(f"线程 {threading.get_ident()} 创建了新的数据库连接。")
 
     try:
         yield local_storage.connection
@@ -79,7 +80,7 @@ def close_thread_db_connection():
     if hasattr(local_storage, 'connection'):
         try:
             local_storage.connection.close()
-            print(f"线程 {threading.get_ident()} 关闭了数据库连接。")
+            logger.info(f"线程 {threading.get_ident()} 关闭了数据库连接。")
         except:
             pass
         finally:
@@ -96,7 +97,8 @@ class ThreadPool:
         self.running = True
         for _ in range(num_threads):
             t = threading.Thread(target=self.worker)
-            t.daemon = True  # 主线程结束时，守护线程也会结束
+            # 主线程结束时，守护线程也会结束
+            t.daemon = True
             t.start()
             self.threads.append(t)
 
@@ -109,11 +111,13 @@ class ThreadPool:
                 try:
                     func(*args, **kwargs)
                 except Exception as e:
-                    print(f"线程池任务执行出错: {e}")
+                    logger.error(f"线程池任务执行出错: {e}")
+                    logger.exception(e)
                 finally:
                     self.tasks.task_done()
             except queue.Empty:
-                continue  # 超时，继续检查 self.running
+                # 超时，继续检查 self.running
+                continue
 
     def add_task(self, func, *args, **kwargs):
         """向线程池添加任务"""
@@ -147,12 +151,13 @@ def _record_login_to_db(user, timestamp, machine, ip):
                 (user, timestamp, machine, ip)
             )
             conn.commit()
-            print(f"用户 {user} 登录状态已记录到数据库 (线程: {threading.get_ident()})")
+            logger.info(f"用户 {user} 登录状态已记录到数据库 (线程: {threading.get_ident()})")
     except Exception as e:
-        print(f"记录登录状态到数据库时出错: {e}")
-    finally:
-        # 可选：任务完成后关闭线程的数据库连接
-        close_thread_db_connection()
+        logger.error(f"记录登录状态到数据库时出错: {e}")
+        logger.exception(e)
+    # finally:
+    #     # 可选：任务完成后关闭线程的数据库连接
+    #     close_thread_db_connection()
 
 
 def _get_status_from_db(limit=10):
@@ -163,61 +168,66 @@ def _get_status_from_db(limit=10):
 
 
 # --- Flask 应用 ---
-def create_app():
-    """应用工厂函数"""
-    app = Flask(__name__)
+class LoginApi:
+    def __init__(self, app: Flask):
+        self.app = app
+        self.init_db()
+        self._register_routes()
 
-    # 应用启动时初始化数据库
-    with app.app_context():
-        init_db()
+    def init_db(self):
+        # 应用启动时初始化数据库
+        with self.app.app_context():
+            init_db()
 
-    @app.route('/api/login_status', methods=['POST'])
-    def record_login():
-        """接收登录状态并提交给线程池处理"""
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "无效的JSON数据"}), 400
+    def _register_routes(self):
+        @self.app.route('/api/login_status', methods=['POST'])
+        def record_login():
+            """接收登录状态并提交给线程池处理"""
+            data = request.get_json()
+            if not data:
+                return jsonify({"error": "无效的JSON数据"}), 400
 
-        user = data.get('user')
-        timestamp = data.get('timestamp')
-        machine = data.get('machine', 'Unknown')
-        # 获取客户端IP
-        ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
+            user = data.get('user')
+            timestamp = data.get('timestamp')
+            machine = data.get('machine', 'Unknown')
+            # 获取客户端IP
+            ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
 
-        if user:  # 简单验证
-            # 将写入数据库的任务提交到线程池，避免阻塞HTTP响应
-            task_pool.add_task(_record_login_to_db, user, timestamp, machine, ip)
-            return jsonify({"status": "received and queued"}), 202  # 202 Accepted
-        else:
-            return jsonify({"error": "缺少用户信息"}), 400
+            if user:  # 简单验证
+                # 将写入数据库的任务提交到线程池，避免阻塞HTTP响应
+                task_pool.add_task(_record_login_to_db, user, timestamp, machine, ip)
+                return jsonify({"status": "received and queued"}), 202  # 202 Accepted
+            else:
+                return jsonify({"error": "缺少用户信息"}), 400
 
-    @app.route('/api/login_status', methods=['GET'])
-    def get_status():
-        """获取登录状态 (直接在请求线程中执行查询)"""
-        try:
-            # 直接在处理HTTP请求的线程中执行查询
-            # 如果查询非常耗时，可以考虑也放入线程池
-            limit = request.args.get('limit', 10, type=int)
+        @self.app.route('/api/login_status', methods=['GET'])
+        def get_status():
+            """获取登录状态 (直接在请求线程中执行查询)"""
+            try:
+                # 直接在处理HTTP请求的线程中执行查询
+                # 如果查询非常耗时，可以考虑也放入线程池
+                limit = request.args.get('limit', 10, type=int)
+                account = request.args.get('account', '1', type=str)
 
-            with get_db_connection() as conn:
-                c = conn.cursor()
-                c.execute(
-                    "SELECT id, user, timestamp, machine, ip FROM logins WHERE user=? ORDER BY timestamp DESC LIMIT ?",
-                    ('b', limit)  # 假设只查询用户 'b'
-                )
-                rows = c.fetchall()
+                with get_db_connection() as conn:
+                    c = conn.cursor()
+                    c.execute(
+                        "SELECT id, user, timestamp, machine, ip FROM logins WHERE user=? "
+                        "ORDER BY timestamp DESC LIMIT ?",
+                        (account, limit)  # 假设只查询用户 'b'
+                    )
+                    rows = c.fetchall()
 
-            # 使用 sqlite3.Row 可以像字典一样访问列
-            logins = [dict(row) for row in rows]
-            return jsonify(logins)
-        except Exception as e:
-            print(f"查询数据库时出错: {e}")
-            return jsonify({"error": "内部服务器错误"}), 500
+                # 使用 sqlite3.Row 可以像字典一样访问列
+                logins = [dict(row) for row in rows]
+                return jsonify(logins)
+            except Exception as e:
+                logger.error(f"查询数据库时出错: {e}")
+                logger.exception(e)
+                return jsonify({"error": "内部服务器错误"}), 500
 
-    # 可选：在应用关闭时清理资源
-    import atexit
-    def cleanup():
-        print("正在关闭应用...")
+    def cleanup(self):
+        logger.info("正在关闭应用...")
         task_pool.shutdown()
         # 关闭所有线程的数据库连接
         # 这在守护线程和应用退出时可能不是必须的，但作为示例
@@ -226,13 +236,12 @@ def create_app():
 
     atexit.register(cleanup)
 
-    return app
 
-
-# --- 应用入口 ---
+# --- 测试应用入口 ---
 if __name__ == '__main__':
-    flask_app = create_app()
-    print("Flask 应用已启动，数据库已初始化。")
+    flask_app = Flask(__name__)
+    login_api = LoginApi(flask_app)
+    logger.info("Flask 应用已启动，数据库已初始化。")
     # 启动 Flask 开发服务器
     # 生产环境应关闭 debug
     flask_app.run(host='0.0.0.0', port=5000, debug=False)
