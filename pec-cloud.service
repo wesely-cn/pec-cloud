@@ -1,0 +1,15 @@
+[Unit]
+Description=PEC Cloud Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/data/pec-cloud
+ExecStart=/data/pec-cloud/start.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

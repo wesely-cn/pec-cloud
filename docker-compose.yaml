@@ -1,0 +1,29 @@
+version: '3'
+services:
+  pec-cloud:
+    image: pec-cloud:0.0.1
+    container_name: pec-cloud
+    ports:
+      - "6100:6100"
+      - "6666:6666"
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./config:/app/config
+    environment:
+      - FLASK_ENV=production
+      - LOG_LEVEL=INFO
+      - SERVER_PORT=6100
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6100/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+#      start_period: 40s
+
+networks:
+  app-network:
+    driver: bridge
