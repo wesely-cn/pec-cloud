@@ -1,9 +1,8 @@
 # -*- coding:utf-8 -*-
-# @FileName  :zeromq-server.py
+# @FileName  :zeromq_server.py
 # @Time      :2025/9/4 15:54
 # @Author    :shi lei.wei  <slwei@eppei.com>.
-
-
+# server.py (外网)
 import json
 import logging
 import threading
@@ -11,18 +10,18 @@ import time
 import zlib
 from queue import Queue, Empty
 
-# server.py (外网)
 import zmq
 from flask import Flask, request, jsonify
 
 from config_manager import load_config, ConfigManager
 from log import setup_logger
+from login_api import LoginApi
 
 logger = logging.getLogger(__name__)
 
 
 class DataPublisher:
-    def __init__(self, zmq_bind_address="tcp://0.0.0.0:6666", api_port=6100):
+    def __init__(self, flask_app: Flask, zmq_bind_address="tcp://0.0.0.0:6666", api_port=6100):
         self.api_port = api_port
         # ZMQ配置
         self.zmq_context = zmq.Context()
@@ -30,7 +29,8 @@ class DataPublisher:
         self.zmq_socket.bind(zmq_bind_address)
 
         # API配置
-        self.app = Flask(__name__)
+        # self.app = Flask(__name__)
+        self.app = flask_app
         # 缓冲队列
         self.data_queue = Queue(maxsize=1000)
         self.running = True
@@ -60,11 +60,11 @@ class DataPublisher:
                     return jsonify({"error": "Missing 'data' field"}), 400
                 # 添加到队列（阻塞等待，直到有空间）
                 queue_data = {
-                    "type": "data",
-                    "timestamp": time.time(),
                     "payload": data,
                     "received_at": time.time()
                 }
+                # # 改为接受纯文本
+                # text_data = request.get_data(as_text=True)
                 # 阻塞put
                 self.data_queue.put(queue_data)
                 logger.info(f"数据已接收并加入队列，队列大小: {self.data_queue.qsize()}")
@@ -92,10 +92,10 @@ class DataPublisher:
                 compressed_heartbeat = self.compress_data(heartbeat_data)
                 self.zmq_socket.send_multipart([b"heartbeat", compressed_heartbeat])
                 logger.debug(f"[心跳] 发送心跳包")
-                time.sleep(10)
+                time.sleep(60)
             except Exception as e:
                 logger.error(f"[心跳] 错误: {e}")
-                time.sleep(5)
+                time.sleep(30)
 
     def _get_next_sequence(self):
         """获取下一个序列号"""
@@ -112,50 +112,50 @@ class DataPublisher:
                 # 阻塞等待队列数据（超时1秒，避免无法响应停止信号）
                 queue_data = self.data_queue.get(timeout=1)
                 # 获取序列号
-                sequence = self._get_next_sequence()
+                # sequence = self._get_next_sequence()
                 # 构造完整数据包
-                full_data = {
-                    "type": "data",
-                    "timestamp": queue_data["timestamp"],
-                    "sequence": sequence,
-                    "payload": queue_data["payload"],
-                    "received_at": queue_data["received_at"],
-                    "published_at": time.time()
-                }
+                # full_data = {
+                #     "type": "data",
+                #     "sequence": sequence,
+                #     "payload": queue_data["payload"],
+                #     "received_at": queue_data["received_at"],
+                #     "published_at": time.time()
+                # }
                 # 压缩并发送
-                compressed_data = self.compress_data(full_data)
-                self.zmq_socket.send_multipart([b"data", compressed_data])
+                # compressed_data = self.compress_data(full_data)
+                # encrypt_data = encrypt_util.encrypt_data(json.dumps(full_data))
+                # 这里采集端上传的时候已经压缩过了，所以直接传
+                logger.info("zmq push data: %s", str(queue_data["received_at"]))
+                self.zmq_socket.send_multipart([b"data", queue_data["payload"].encode("utf-8")])
 
-                original_size = len(json.dumps(full_data).encode('utf-8'))
-                compressed_size = len(compressed_data)
-                compression_ratio = (1 - compressed_size / original_size) * 100
-
-                logger.info(f"[数据] 发送消息 #{sequence}")
-                logger.info(f"      原始大小: {original_size} 字节")
-                logger.info(f"      压缩后: {compressed_size} 字节")
-                logger.info(f"      压缩率: {compression_ratio:.2f}%")
+                # original_size = len(json.dumps(full_data).encode('utf-8'))
+                # compressed_size = len(encrypt_data)
+                # compression_ratio = (1 - compressed_size / original_size) * 100
+                #
+                # logger.info(f"[数据] 发送消息 #{sequence}")
+                # logger.info(f"      原始大小: {original_size} 字节")
+                # logger.info(f"      压缩后: {compressed_size} 字节")
+                # logger.info(f"      压缩率: {compression_ratio:.2f}%")
                 # 标记任务完成
                 self.data_queue.task_done()
             except Empty:
                 # 超时，继续循环检查running状态
                 continue
             except Exception as e:
-                logger.error(f"发布数据错误: {e}")
+                logger.exception(f"发布数据错误: {e}")
                 time.sleep(1)
 
     def add_data(self, data):
         """添加数据到队列"""
         try:
             queue_data = {
-                "type": "data",
-                "timestamp": time.time(),
                 "payload": data,
                 "received_at": time.time()
             }
             self.data_queue.put(queue_data, timeout=5)
             return True
-        except:
-            logger.error("队列已满，数据添加失败")
+        except Exception as e:
+            logger.exception("队列已满，数据添加失败", e)
             return False
 
     def stop(self):
@@ -170,6 +170,7 @@ class DataPublisher:
         """启动服务"""
         # 启动线程
         self.publish_thread.start()
+        # 是否需要发送心跳？占用流量
         self.heartbeat_thread.start()
 
         logger.info("数据发布服务启动完成")
@@ -181,17 +182,16 @@ class DataPublisher:
 def create_app(api_port, zmq_bind_address):
     app = Flask(__name__)
     # 创建全局DataPublisher实例
-    app.publisher = DataPublisher(zmq_bind_address, api_port)
+    app.publisher = DataPublisher(app, zmq_bind_address, api_port)
+    # 创建LoginApi实例，账号登录状态接口
+    LoginApi(app)
 
     @app.route('/api/data', methods=['POST'])
     def receive_data():
         try:
-            data = request.get_json()
-            if not data:
-                return jsonify({"error": "No JSON data provided"}), 400
-            if 'data' not in data:
-                return jsonify({"error": "Missing 'data' field"}), 400
-            if app.publisher.add_data(data):
+            # 改为接受纯文本
+            text_data = request.get_data(as_text=True)
+            if app.publisher.add_data(text_data):
                 return jsonify({"status": "success", "message": "Data received"}), 200
             else:
                 return jsonify({"error": "Queue full, try again later"}), 503
@@ -250,7 +250,6 @@ zmq_address = ConfigManager.get_param_by_key("zmq_address", "tcp://0.0.0.0:6666"
 debug_mode = ConfigManager.get_param_by_key("debug_mode", False)
 # 用于Gunicorn启动
 gun_app = create_app(c_port, zmq_address)
-
 
 if __name__ == "__main__":
     # 直接运行时使用Flask开发服务器（仅用于开发测试）

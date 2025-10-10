@@ -10,7 +10,7 @@ import sys
 
 class ConfigManager:
     _data = None
-    email_param = {}
+    _param = {}
 
     @staticmethod
     def load_config(file_path):
@@ -23,12 +23,14 @@ class ConfigManager:
         with open(file_path, 'r', encoding='utf-8') as file:
             ConfigManager._data = json.load(file)
         for key, value in ConfigManager._data.items():
-            ConfigManager.email_param.setdefault(key, value)
+            ConfigManager._param.setdefault(key, value)
         return ConfigManager._data
 
     @staticmethod
-    def get_init_param_by_key(key):
-        return ConfigManager.email_param.get(key)
+    def get_init_param_by_key(key, default_value=None):
+        param_value = ConfigManager._param.get(key)
+        the_value = param_value if param_value else default_value
+        return the_value
 
     @staticmethod
     def get_param_by_key(key, default_value=None):

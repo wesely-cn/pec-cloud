@@ -2,6 +2,7 @@
 # @FileName  :zeromq-client.py
 # @Time      :2025/9/4 15:55
 # @Author    :shi lei.wei  <slwei@eppei.com>.
+# client.py (内网)
 import logging
 
 import zmq
@@ -11,6 +12,8 @@ import time
 import threading
 from datetime import datetime
 
+import decrypt_util
+from action_util import call_third_api
 from config_manager import load_config, ConfigManager
 from log import setup_logger
 
@@ -18,16 +21,24 @@ logger = logging.getLogger(__name__)
 
 
 class DataSubscriber:
-    def __init__(self, server_address="tcp://0.0.0.0:6666"):
+    def __init__(self, server_address="tcp://0.0.0.0:6666", recv_timeout=10000):
+        """
+        初始化订阅者
+        :param server_address: 服务端地址
+        :param recv_timeout: 接收超时时间（毫秒），None表示永久阻塞
+        """
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.SUB)
         self.socket.connect(server_address)
         # 订阅所有消息
         self.socket.setsockopt(zmq.SUBSCRIBE, b"")
+        # 设置接收超时
+        if recv_timeout is not None:
+            self.socket.setsockopt(zmq.RCVTIMEO, recv_timeout)
         self.running = True
         self.last_heartbeat = time.time()
         # 30秒无心跳认为连接异常
-        self.heartbeat_timeout = 30
+        self.heartbeat_timeout = 180
         logger.info("zero mq client bind address: %s", server_address)
 
     def decompress_data(self, compressed_data):
@@ -45,7 +56,7 @@ class DataSubscriber:
         while self.running:
             current_time = time.time()
             if current_time - self.last_heartbeat > self.heartbeat_timeout:
-                logger.info(f"[警告] 心跳超时！最后心跳时间: {datetime.fromtimestamp(self.last_heartbeat)}")
+                logger.warning(f"[警告] 心跳超时！最后心跳时间: {datetime.fromtimestamp(self.last_heartbeat)}")
                 # 可以在这里添加重连逻辑
             time.sleep(5)
 
@@ -73,10 +84,11 @@ class DataSubscriber:
                         elif msg_type == b"data":
                             # 处理数据包
                             start_time = time.time()
-                            data = self.decompress_data(compressed_data)
+                            # data = self.decompress_data(compressed_data)
+                            data = decrypt_util.decrypt_data(compressed_data.decode("utf-8"))
                             if data:
                                 process_time = time.time() - start_time
-                                self.process_data(data, process_time)
+                                self.process_data(json.loads(data), process_time)
                             else:
                                 logger.info("数据解压失败")
                         else:
@@ -89,7 +101,7 @@ class DataSubscriber:
                 except Exception as e:
                     logger.error(f"接收错误: {e}")
                     logger.exception(e)
-                    time.sleep(1)
+                    time.sleep(10)
         except KeyboardInterrupt:
             logger.error("客户端停止...")
         finally:
@@ -101,16 +113,13 @@ class DataSubscriber:
             sequence = data.get('sequence', 'N/A')
             timestamp = data.get('timestamp', 'N/A')
             data_size = len(data.get('data', ''))
-
             logger.info(f"[数据] 接收消息 #{sequence}")
             logger.info(
                 f"      时间戳: {datetime.fromtimestamp(timestamp) if isinstance(timestamp, (int, float)) else timestamp}")
             logger.info(f"      数据大小: {data_size} 字节")
             logger.info(f"      处理耗时: {process_time:.3f} 秒")
-
-            # 这里实现您的业务逻辑
-            # 例如：保存到数据库、文件处理、转发等
-
+            # 转发到辅助决策系统
+            call_third_api(data.get('data'))
         except Exception as e:
             logger.error(f"数据处理错误: {e}")
             logger.exception(e)
