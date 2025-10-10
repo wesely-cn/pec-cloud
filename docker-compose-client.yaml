@@ -1,0 +1,18 @@
+version: '3'
+services:
+  pec-cloud:
+    image: pec-cloud-client:0.0.1
+    container_name: pec-cloud-client
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./config/config_client.json:/app/config_client.json
+    environment:
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

@@ -26,7 +26,7 @@ exec gunicorn \
     --max-requests 1000 \
     --max-requests-jitter 100 \
     --log-level info \
-    --access-logfile /app/logs/gunicorn-access.log \
-    --error-logfile /app/logs/gunicorn-error.log \
+    --access-logfile /app/log/gunicorn-access.log \
+    --error-logfile /app/log/gunicorn-error.log \
     --preload \
-    zeromq-server:gun_app
+    zeromq_server:gun_app
