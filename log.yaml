@@ -3,7 +3,7 @@ disable_existing_loggers: False
 
 formatters:
   simple:
-    format: '%(asctime)s %(name)s %(filename)s %(funcName)s[line:%(lineno)d]%(levelname)s %(threadName)s - %(message)s'
+    format: '%(asctime)s %(name)s PID:%(process)d %(processName)s %(filename)s %(funcName)s[line:%(lineno)d] %(levelname)s %(threadName)s - %(message)s'
 
 handlers:
   console:
@@ -20,14 +20,21 @@ handlers:
     interval: 1
     backupCount: 365
     encoding: utf8
-    delay: True
+    delay: False
 
 loggers:
-  myapp:
+  # 配置你的应用日志器
+  gun_app:
+    level: DEBUG
+    handlers: [console, file]
+    propagate: no  # 不向父级传播
+
+  # 配置你的模块日志器（根据实际模块名）
+  zeromq_server:
     level: DEBUG
     handlers: [console, file]
     propagate: no
 
 root:
   level: DEBUG
-  handlers: [console, file]
+  handlers: [file]

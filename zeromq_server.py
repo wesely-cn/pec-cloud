@@ -8,7 +8,8 @@ import logging
 import threading
 import time
 import zlib
-from queue import Queue, Empty
+from multiprocessing import Queue
+from queue import Empty
 
 import zmq
 from flask import Flask, request, jsonify
@@ -21,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class DataPublisher:
-    def __init__(self, flask_app: Flask, zmq_bind_address="tcp://0.0.0.0:6666", api_port=6100):
+    def __init__(self, flask_app: Flask, zmq_bind_address="tcp://0.0.0.0:6666", api_port=6100, shared_queue=None):
         self.api_port = api_port
         # ZMQ配置
         self.zmq_context = zmq.Context()
@@ -32,7 +33,7 @@ class DataPublisher:
         # self.app = Flask(__name__)
         self.app = flask_app
         # 缓冲队列
-        self.data_queue = Queue(maxsize=1000)
+        self.data_queue = shared_queue
         self.running = True
         self.sequence_counter = 0
         self.sequence_lock = threading.Lock()
@@ -48,7 +49,7 @@ class DataPublisher:
     def _register_routes(self):
         """注册API路由"""
 
-        @self.app.route('/api/data', methods=['POST'])
+        @self.app.route('/api/data2', methods=['POST'])
         def receive_data():
             try:
                 # 接收JSON数据
@@ -181,8 +182,11 @@ class DataPublisher:
 # 创建Flask应用
 def create_app(api_port, zmq_bind_address):
     app = Flask(__name__)
+    # 在主进程创建队列
+    shared_queue = Queue(maxsize=1000)
+    # 传递给 worker 进程（需在 fork 前设置好）
     # 创建全局DataPublisher实例
-    app.publisher = DataPublisher(app, zmq_bind_address, api_port)
+    app.publisher = DataPublisher(app, zmq_bind_address, api_port, shared_queue)
     # 创建LoginApi实例，账号登录状态接口
     LoginApi(app)
 
@@ -192,6 +196,7 @@ def create_app(api_port, zmq_bind_address):
             # 改为接受纯文本
             text_data = request.get_data(as_text=True)
             if app.publisher.add_data(text_data):
+                logger.info(f"数据已接收并加入队列，队列大小: {app.publisher.data_queue.qsize()}")
                 return jsonify({"status": "success", "message": "Data received"}), 200
             else:
                 return jsonify({"error": "Queue full, try again later"}), 503
@@ -253,7 +258,7 @@ gun_app = create_app(c_port, zmq_address)
 
 if __name__ == "__main__":
     # 直接运行时使用Flask开发服务器（仅用于开发测试）
-    gun_app.run(host='0.0.0.0', port=c_port, threaded=True, debug=debug_mode)
+    # gun_app.run(host='0.0.0.0', port=c_port, threaded=True, debug=debug_mode)
     # # 创建全局实例
     # publisher = DataPublisher(zmq_address, c_port)
     # try:
@@ -261,3 +266,4 @@ if __name__ == "__main__":
     # except KeyboardInterrupt:
     #     logger.info("服务停止...")
     #     publisher.stop()
+    pass

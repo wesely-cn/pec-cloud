@@ -17,16 +17,5 @@ fi
 
 # 启动应用
 echo "启动Gunicorn服务器..."
-exec gunicorn \
-    --bind "0.0.0.0:6100" \
-    --workers 4 \
-    --worker-class sync \
-    --timeout 30 \
-    --keep-alive 2 \
-    --max-requests 1000 \
-    --max-requests-jitter 100 \
-    --log-level info \
-    --access-logfile /app/log/gunicorn-access.log \
-    --error-logfile /app/log/gunicorn-error.log \
-    --preload \
-    zeromq_server:gun_app
+export TZ='Asia/Shanghai'
+exec gunicorn -c /app/gunicorn.conf.py zeromq_server:gun_app

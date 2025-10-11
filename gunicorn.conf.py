@@ -15,8 +15,8 @@ timeout = 30  # 请求超时时间
 keepalive = 2  # Keep-Alive时间
 
 # 日志配置
-accesslog = "/app/log/gunicorn/access.log"
-errorlog = "/app/log/gunicorn/error.log"
+accesslog = "/app/log/gunicorn_access.log"
+errorlog = "/app/log/gunicorn_error.log"
 loglevel = "info"
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 
