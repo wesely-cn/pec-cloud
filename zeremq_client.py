@@ -29,6 +29,7 @@ class DataSubscriber:
         """
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.SUB)
+        self.server_address = server_address
         self.socket.connect(server_address)
         # 订阅所有消息
         self.socket.setsockopt(zmq.SUBSCRIBE, b"")
@@ -58,6 +59,9 @@ class DataSubscriber:
             if current_time - self.last_heartbeat > self.heartbeat_timeout:
                 logger.warning(f"[警告] 心跳超时！最后心跳时间: {datetime.fromtimestamp(self.last_heartbeat)}")
                 # 可以在这里添加重连逻辑
+                self.socket.connect(self.server_address)
+                # 订阅所有消息
+                self.socket.setsockopt(zmq.SUBSCRIBE, b"")
             time.sleep(5)
 
     def start_subscribing(self):

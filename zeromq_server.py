@@ -138,7 +138,7 @@ class DataPublisher:
                 # logger.info(f"      压缩后: {compressed_size} 字节")
                 # logger.info(f"      压缩率: {compression_ratio:.2f}%")
                 # 标记任务完成
-                self.data_queue.task_done()
+                # self.data_queue.task_done()
             except Empty:
                 # 超时，继续循环检查running状态
                 continue

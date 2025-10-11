@@ -26,7 +26,7 @@ def call_third_api(payload, **kwargs):
     try:
         if int(kwargs.get('push_data', 1)) == 0:
             return
-        the_host = ConfigManager.get_init_param_by_key("third_host", "http://10.184.37.90")
+        the_host = ConfigManager.get_init_param_by_key("third_host", "http://10.184.37.90/api")
         the_path = ConfigManager.get_init_param_by_key("third_top_path", "/monitor/crawler/parseTopData")
         default_headers = {
             'Content-Type': 'application/json',

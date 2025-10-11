@@ -1,7 +1,7 @@
 {
   "zmq_address": "tcp://127.0.0.1:6666",
   "key": "hTiUwIHUr2awG9uhelSI4/jYeyVmir4zzpviBASanM4=",
-  "third_host": "http://10.184.37.90",
+  "third_host": "http://10.184.37.90/api",
   "third_top_path": "/monitor/crawler/parseTopData",
   "third_deal_path": "/monitor/crawler/parseDealData"
 }
