@@ -14,6 +14,7 @@ from queue import Empty
 import zmq
 from flask import Flask, request, jsonify
 
+from back_off_queue import on_permanent_failure, ExponentialBackoffQueue
 from config_manager import load_config, ConfigManager
 from log import setup_logger
 from login_api import LoginApi
@@ -45,6 +46,16 @@ class DataPublisher:
         self.publish_thread = threading.Thread(target=self._publish_data_loop, daemon=True)
         self.heartbeat_thread = threading.Thread(target=self._send_heartbeat, daemon=True)
         self.start(zmq_bind_address)
+        # 启动重试线程
+        self.ebq = ExponentialBackoffQueue(
+            process_func=self._process_data,
+            max_retries=5,
+            base_delay=60.0,
+            max_backoff=60 * 60 * 6.0,
+            jitter=True,
+            dead_letter_callback=on_permanent_failure,
+            worker_count=2
+        )
 
     def _register_routes(self):
         """注册API路由"""
@@ -109,6 +120,7 @@ class DataPublisher:
         """数据发布循环 - 使用阻塞队列读取"""
         logger.info("数据发布循环启动")
         while self.running:
+            queue_data = None
             try:
                 # 阻塞等待队列数据（超时1秒，避免无法响应停止信号）
                 queue_data = self.data_queue.get(timeout=1)
@@ -143,8 +155,15 @@ class DataPublisher:
                 # 超时，继续循环检查running状态
                 continue
             except Exception as e:
-                logger.exception(f"发布数据错误: {e}")
+                logger.exception(f"发布数据异常: {e}")
+                if queue_data:
+                    self.ebq.add_task(queue_data)
                 time.sleep(1)
+
+    def _process_data(self, queue_data):
+        # 这里采集端上传的时候已经压缩过了，所以直接传
+        logger.info("zmq re-push data: %s", str(queue_data["received_at"]))
+        self.zmq_socket.send_multipart([b"data", queue_data["payload"].encode("utf-8")])
 
     def add_data(self, data):
         """添加数据到队列"""

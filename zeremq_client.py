@@ -3,17 +3,18 @@
 # @Time      :2025/9/4 15:55
 # @Author    :shi lei.wei  <slwei@eppei.com>.
 # client.py (内网)
+import json
 import logging
+import threading
+import time
+import zlib
+from datetime import datetime
 
 import zmq
-import json
-import zlib
-import time
-import threading
-from datetime import datetime
 
 import decrypt_util
 from action_util import call_third_api
+from back_off_queue import ExponentialBackoffQueue, on_permanent_failure
 from config_manager import load_config, ConfigManager
 from log import setup_logger
 
@@ -40,6 +41,16 @@ class DataSubscriber:
         self.last_heartbeat = time.time()
         # 30秒无心跳认为连接异常
         self.heartbeat_timeout = 180
+        # 启动重试线程
+        self.ebq = ExponentialBackoffQueue(
+            process_func=call_third_api,
+            max_retries=5,
+            base_delay=60.0,
+            max_backoff=60 * 60 * 6.0,
+            jitter=True,
+            dead_letter_callback=on_permanent_failure,
+            worker_count=2
+        )
         logger.info("zero mq client bind address: %s", server_address)
 
     def decompress_data(self, compressed_data):
@@ -83,8 +94,9 @@ class DataSubscriber:
                             heartbeat_data = self.decompress_data(compressed_data)
                             if heartbeat_data:
                                 self.last_heartbeat = time.time()
-                                logger.info(f"[心跳] 收到心跳包 - {datetime.fromtimestamp(heartbeat_data['timestamp'])} - "
-                                            f"{heartbeat_data['queue_size']}")
+                                logger.info(
+                                    f"[心跳] 收到心跳包 - {datetime.fromtimestamp(heartbeat_data['timestamp'])} - "
+                                    f"{heartbeat_data['queue_size']}")
                         elif msg_type == b"data":
                             # 处理数据包
                             start_time = time.time()
@@ -114,19 +126,22 @@ class DataSubscriber:
     def process_data(self, data, process_time):
         """处理接收到的数据"""
         try:
-            sequence = data.get('sequence', 'N/A')
-            timestamp = data.get('timestamp', 'N/A')
-            data_size = len(data.get('data', ''))
+            inner_payload = data.get('payload', 'N/A')
+            # 内存对象: {"data": data, "timestamp": datetime.now().isoformat(), "sequence": sequence}
+            sequence = inner_payload.get('sequence', 'N/A')
+            timestamp = inner_payload.get('timestamp', 'N/A')
+            data_size = len(inner_payload.get('data', ''))
             logger.info(f"[数据] 接收消息 #{sequence}")
             logger.info(
                 f"      时间戳: {datetime.fromtimestamp(timestamp) if isinstance(timestamp, (int, float)) else timestamp}")
             logger.info(f"      数据大小: {data_size} 字节")
             logger.info(f"      处理耗时: {process_time:.3f} 秒")
             # 转发到辅助决策系统
-            call_third_api(data.get('data'))
+            call_third_api(data)
+            # push_with_retry(data)
         except Exception as e:
-            logger.error(f"数据处理错误: {e}")
-            logger.exception(e)
+            logger.exception(f"数据处理错误: {e}")
+            self.ebq.add_task(data)
 
     def stop(self):
         """停止客户端"""
