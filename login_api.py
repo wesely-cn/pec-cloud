@@ -3,16 +3,16 @@
 # @Time      :2025/8/28 21:32
 # @Author    :shi lei.wei  <slwei@eppei.com>.
 # 可选：在应用关闭时清理资源
-import atexit
 import hashlib
 import logging
-# 推荐使用 queue 来管理线程池
-import queue
 import random
 import sqlite3
 import threading
 import time
 from contextlib import contextmanager
+# 推荐使用 queue 来管理线程池
+from multiprocessing import Queue
+from queue import Empty
 
 # app.py
 from flask import Flask, request, jsonify
@@ -99,12 +99,12 @@ def close_thread_db_connection():
             delattr(local_storage, 'connection')
 
 
-# --- 线程池实现 ---
-class ThreadPool:
+# --- 任务池实现 ---
+class TaskPool:
     """一个简单的线程池实现"""
 
     def __init__(self, num_threads):
-        self.tasks = queue.Queue()
+        self.tasks = Queue()
         self.threads = []
         self.running = True
         for _ in range(num_threads):
@@ -125,9 +125,9 @@ class ThreadPool:
                 except Exception as e:
                     logger.error(f"线程池任务执行出错: {e}")
                     logger.exception(e)
-                finally:
-                    self.tasks.task_done()
-            except queue.Empty:
+                # finally:
+                #     self.tasks.task_done()
+            except Empty:
                 # 超时，继续检查 self.running
                 continue
 
@@ -135,13 +135,15 @@ class ThreadPool:
         """向线程池添加任务"""
         if self.running:
             self.tasks.put((func, args, kwargs))
+            logger.info("add task success!")
 
-    def wait_completion(self):
-        """等待所有任务完成"""
-        self.tasks.join()
+    # def wait_completion(self):
+    #     """等待所有任务完成"""
+    #     self.tasks.join()
 
     def shutdown(self):
         """关闭线程池"""
+        logger.info("关闭线程池")
         self.running = False
         # 等待所有线程结束
         for t in self.threads:
@@ -149,7 +151,7 @@ class ThreadPool:
 
 
 # 全局线程池实例
-task_pool = ThreadPool(THREAD_POOL_SIZE)
+task_pool = TaskPool(THREAD_POOL_SIZE)
 
 
 # --- 数据库操作函数 (在后台线程中执行) ---
@@ -187,7 +189,7 @@ class LoginApi:
         self.unit_name = ConfigManager.get_init_param_by_key("unit_name")
         self.init_db()
         self._register_routes()
-        atexit.register(self.cleanup)
+        # atexit.register(self.cleanup)
 
     def init_db(self):
         # 应用启动时初始化数据库
@@ -203,6 +205,7 @@ class LoginApi:
             data = request.get_json()
             if not data:
                 return jsonify({"error": "无效的JSON数据"}), 400
+            logger.info("received: %s", data)
             unit = data.get('unitName')
             timestamp = data.get('timestamp')
             machine = data.get('uniqueId', 'Unknown')
