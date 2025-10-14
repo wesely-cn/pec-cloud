@@ -38,3 +38,7 @@ loggers:
 root:
   level: DEBUG
   handlers: [file]
+# client客户端使用下面的配置
+#root:
+#  level: DEBUG
+#  handlers: [console, file]

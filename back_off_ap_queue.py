@@ -1,5 +1,5 @@
 # -*- coding:utf-8 -*-
-# @FileName  :backoff_queue.py
+# @FileName  :back_off_ap_queue.py
 # @Time      :2025/10/12 16:51
 # @Author    :shi lei.wei  <slwei@eppei.com>.
 

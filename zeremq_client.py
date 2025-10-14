@@ -29,11 +29,11 @@ class DataSubscriber:
         :param recv_timeout: 接收超时时间（毫秒），None表示永久阻塞
         """
         self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.SUB)
+        self.socket = self.context.socket(zmq.PULL)
         self.server_address = server_address
         self.socket.connect(server_address)
         # 订阅所有消息
-        self.socket.setsockopt(zmq.SUBSCRIBE, b"")
+        # self.socket.setsockopt(zmq.SUBSCRIBE, b"")
         # 设置接收超时
         if recv_timeout is not None:
             self.socket.setsockopt(zmq.RCVTIMEO, recv_timeout)
@@ -106,7 +106,7 @@ class DataSubscriber:
                                 process_time = time.time() - start_time
                                 self.process_data(json.loads(data), process_time)
                             else:
-                                logger.info("数据解压失败")
+                                logger.error("数据解压失败")
                         else:
                             logger.info(f"未知消息类型: {msg_type}")
                     else:
@@ -130,7 +130,7 @@ class DataSubscriber:
             # 内存对象: {"data": data, "timestamp": datetime.now().isoformat(), "sequence": sequence}
             sequence = inner_payload.get('sequence', 'N/A')
             timestamp = inner_payload.get('timestamp', 'N/A')
-            data_size = len(inner_payload.get('data', ''))
+            data_size = len(str(inner_payload.get('data', '')))
             logger.info(f"[数据] 接收消息 #{sequence}")
             logger.info(
                 f"      时间戳: {datetime.fromtimestamp(timestamp) if isinstance(timestamp, (int, float)) else timestamp}")

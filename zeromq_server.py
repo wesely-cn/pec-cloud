@@ -27,7 +27,7 @@ class DataPublisher:
         self.api_port = api_port
         # ZMQ配置
         self.zmq_context = zmq.Context()
-        self.zmq_socket = self.zmq_context.socket(zmq.PUB)
+        self.zmq_socket = self.zmq_context.socket(zmq.PUSH)
         self.zmq_socket.bind(zmq_bind_address)
 
         # API配置
