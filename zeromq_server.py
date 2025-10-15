@@ -29,6 +29,7 @@ class DataPublisher:
         self.zmq_context = zmq.Context()
         self.zmq_socket = self.zmq_context.socket(zmq.PUSH)
         self.zmq_socket.bind(zmq_bind_address)
+        self.heart_beat = ConfigManager.get_param_by_key("zero_mq_heart_beat", 300)
 
         # API配置
         # self.app = Flask(__name__)
@@ -104,10 +105,10 @@ class DataPublisher:
                 compressed_heartbeat = self.compress_data(heartbeat_data)
                 self.zmq_socket.send_multipart([b"heartbeat", compressed_heartbeat])
                 logger.debug(f"[心跳] 发送心跳包")
-                time.sleep(60)
+                time.sleep(self.heart_beat)
             except Exception as e:
                 logger.error(f"[心跳] 错误: {e}")
-                time.sleep(30)
+                time.sleep(self.heart_beat)
 
     def _get_next_sequence(self):
         """获取下一个序列号"""

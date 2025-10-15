@@ -39,8 +39,8 @@ class DataSubscriber:
             self.socket.setsockopt(zmq.RCVTIMEO, recv_timeout)
         self.running = True
         self.last_heartbeat = time.time()
-        # 30秒无心跳认为连接异常
-        self.heartbeat_timeout = 180
+        # 多少秒无心跳认为连接异常
+        self.heartbeat_timeout = ConfigManager.get_param_by_key("zero_mq_heart_beat_timeout", 900)
         # 启动重试线程
         self.ebq = ExponentialBackoffQueue(
             process_func=call_third_api,
@@ -72,8 +72,8 @@ class DataSubscriber:
                 # 可以在这里添加重连逻辑
                 self.socket.connect(self.server_address)
                 # 订阅所有消息
-                self.socket.setsockopt(zmq.SUBSCRIBE, b"")
-            time.sleep(5)
+                # self.socket.setsockopt(zmq.SUBSCRIBE, b"")
+            time.sleep(10)
 
     def start_subscribing(self):
         """开始订阅数据"""
